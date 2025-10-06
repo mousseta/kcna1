@@ -1,0 +1,52 @@
+Vagrant.configure("2") do |config|
+  aws_key = ENV['AWS_ACCESS_KEY_ID'] || 'REPLACE_ME'
+  aws_secret = ENV['AWS_SECRET_ACCESS_KEY'] || 'REPLACE_ME'
+
+  config.vm.box = "ubuntu/jammy64"
+  config.vm.hostname = "cncf-standards-lab"
+
+  config.vm.network "private_network", type: "dhcp"
+
+  ["virtualbox", "vmware_desktop", "parallels"].each do |provider_name|
+    config.vm.provider provider_name do |v|
+      v.memory = 4096
+      v.cpus = 2
+      v.name = "cncf-standards-lab"
+    end
+  end
+
+  config.vm.provision "shell", inline: <<-SHELL
+    set -eux
+
+    # --- Mise à jour système ---
+    apt-get update -y
+    apt-get upgrade -y
+
+    # --- Outils de base ---
+    apt-get install -y \\
+      build-essential git curl wget vim tmux htop \\
+      net-tools iproute2 iputils-ping \\
+      util-linux cgroup-tools procps jq make unzip \\
+      debootstrap
+
+    # --- Installer Terraform ---
+    TERRAFORM_VERSION="1.8.5"
+    wget https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+    unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip -d /usr/local/bin
+    rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+    # --- Cloner le dépôt GitHub ---
+    cd /home/vagrant
+    [ -d /home/vagrant/kcna1/.git ] || git clone https://github.com/mousseta/kcna1.git || true
+    chown -R vagrant:vagrant /home/vagrant/kcna1
+
+    # --- Configurer AWS credentials ---
+    mkdir -p /home/vagrant/.aws
+    cat <<EOF > /home/vagrant/.aws/credentials
+[default]
+aws_access_key_id=#{aws_key}
+aws_secret_access_key=#{aws_secret}
+EOF
+    chown -R vagrant:vagrant /home/vagrant/.aws
+  SHELL
+end

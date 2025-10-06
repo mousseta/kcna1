@@ -1,0 +1,97 @@
+sudo apt install python3-pip
+pip3 install flask
+
+nano monolith.py
+# monolith.py
+from flask import Flask, request, jsonify
+import sqlite3
+
+app = Flask(__name__)
+db = sqlite3.connect('fleet.db', check_same_thread=False)
+db.execute('CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT)')
+
+@app.route('/vehicles', methods=['GET'])
+def list_vehicles():
+    cursor = db.execute('SELECT * FROM vehicles')
+    return jsonify(cursor.fetchall())
+
+@app.route('/vehicles', methods=['POST'])
+def add_vehicle():
+    name = request.json['name']
+    db.execute('INSERT INTO vehicles (name) VALUES (?)', (name,))
+    db.commit()
+    return jsonify({'status': 'added'}), 201
+
+if __name__ == '__main__':
+    app.run(port=5000)
+
+python3 monolith.py
+vagrant ssh
+curl -X POST http://localhost:5000/vehicles -H "Content-Type: application/json" -d '{"name": "Peugeot 208"}'
+
+curl http://localhost:5000/vehicles
+
+Microservices – Exemple Python (Flask)
+
+Deux services séparés :
+
+1. vehicle_service.py (API de gestion des véhicules)
+from flask import Flask, request, jsonify
+import sqlite3
+
+app = Flask(__name__)
+db = sqlite3.connect('vehicle.db', check_same_thread=False)
+db.execute('CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT)')
+
+@app.route('/vehicles', methods=['GET'])
+def list_vehicles():
+    cursor = db.execute('SELECT * FROM vehicles')
+    return jsonify(cursor.fetchall())
+
+@app.route('/vehicles', methods=['POST'])
+def add_vehicle():
+    name = request.json['name']
+    db.execute('INSERT INTO vehicles (name) VALUES (?)', (name,))
+    db.commit()
+    return jsonify({'status': 'added'}), 201
+
+if __name__ == '__main__':
+    app.run(port=5001)
+
+2. user_service.py (ex : gestion des utilisateurs)
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+users = []
+
+@app.route('/users', methods=['POST'])
+def add_user():
+    user = request.json
+    users.append(user)
+    return jsonify({'status': 'user added'}), 201
+
+@app.route('/users', methods=['GET'])
+def list_users():
+    return jsonify(users)
+
+if __name__ == '__main__':
+    app.run(port=5002)
+
+
+ester les services :
+
+Ajouter un véhicule :
+
+curl -X POST http://localhost:5001/vehicles -H "Content-Type: application/json" -d '{"name": "Clio"}'
+
+
+Ajouter un utilisateur :
+
+curl -X POST http://localhost:5002/users -H "Content-Type: application/json" -d '{"name": "Alice"}'
+
+
+Lister les utilisateurs :
+
+curl http://localhost:5002/users
+
+

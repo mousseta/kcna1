@@ -1,0 +1,109 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/jammy64"
+  config.vm.hostname = "cncf-standards-lab"
+
+  config.vm.network "private_network", type: "dhcp"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "cncf-standards-lab"
+    vb.memory = 4096
+    vb.cpus = 2
+  end
+
+  config.vm.provider "vmware_desktop" do |vmw|
+    vmw.vmx["memsize"] = "4096"
+    vmw.vmx["numvcpus"] = "2"
+  end
+
+  config.vm.provider "parallels" do |prl|
+    prl.memory = 4096
+    prl.cpus = 2
+  end
+
+  config.vm.provision "shell", inline: <<-SHELL
+    set -eux
+
+    # --- Mise à jour système ---
+    apt-get update -y
+    apt-get upgrade -y
+
+    # --- Outils de base ---
+    apt-get install -y \\
+      build-essential git curl wget vim tmux htop \\
+      net-tools iproute2 iputils-ping \\
+      util-linux cgroup-tools procps jq make \\
+      debootstrap
+
+    # 1. OCI - runc
+    apt-get install -y runc
+
+    # 2. CRI - crictl
+    CRICTL_VERSION="v1.28.0"
+    wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$CRICTL_VERSION/crictl-$CRICTL_VERSION-linux-amd64.tar.gz
+    tar zxvf crictl-$CRICTL_VERSION-linux-amd64.tar.gz -C /usr/local/bin
+    rm -f crictl-$CRICTL_VERSION-linux-amd64.tar.gz
+
+    # 3. CNI plugins
+    CNI_VERSION="v1.3.0"
+    mkdir -p /opt/cni/bin
+    wget https://github.com/containernetworking/plugins/releases/download/$CNI_VERSION/cni-plugins-linux-amd64-$CNI_VERSION.tgz
+    tar -C /opt/cni/bin -xzf cni-plugins-linux-amd64-$CNI_VERSION.tgz
+    rm -f cni-plugins-linux-amd64-$CNI_VERSION.tgz
+
+    mkdir -p /etc/cni/net.d
+    cat <<EOF > /etc/cni/net.d/10-mybridge.conf
+    {
+      "cniVersion": "0.4.0",
+      "name": "mybridge",
+      "type": "bridge",
+      "bridge": "cni0",
+      "isGateway": true,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "10.10.0.0/16"
+      }
+    }
+    EOF
+
+    # 4. CSI - Go + csi-sanity
+    GO_VERSION=1.22.6
+    wget https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf go$GO_VERSION.linux-amd64.tar.gz
+    echo "export PATH=\\$PATH:/usr/local/go/bin:/root/go/bin" >> /etc/profile
+    export PATH=$PATH:/usr/local/go/bin:/root/go/bin
+
+    /usr/local/go/bin/go install github.com/kubernetes-csi/csi-test/v5/cmd/csi-sanity@latest
+    ln -s /root/go/bin/csi-sanity /usr/local/bin/csi-sanity || true
+
+    # 5. SMI - YAML example
+    mkdir -p /home/vagrant/smi-examples
+    cat <<EOF > /home/vagrant/smi-examples/trafficsplit.yaml
+    apiVersion: specs.smi-spec.io/v1alpha4
+    kind: TrafficSplit
+    metadata:
+      name: demo-split
+    spec:
+      service: my-service
+      backends:
+      - service: my-service-v1
+        weight: 80
+      - service: my-service-v2
+        weight: 20
+    EOF
+
+    chown -R vagrant:vagrant /home/vagrant/smi-examples
+
+    # Cloner le dépôt GitHub
+    su - vagrant -c "git clone https://github.com/mousseta/kcna1 /home/vagrant/kcna1"
+
+    # Créer le fichier ~/.aws/credentials pour Terraform
+    mkdir -p /home/vagrant/.aws
+    cat <<EOF > /home/vagrant/.aws/credentials
+    [default]
+    aws_access_key_id=${AWS_ACCESS_KEY_ID:-REPLACE_ME}
+    aws_secret_access_key=${AWS_SECRET_ACCESS_KEY:-REPLACE_ME}
+    EOF
+    chown -R vagrant:vagrant /home/vagrant/.aws
+  SHELL
+end

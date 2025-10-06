@@ -1,0 +1,6 @@
+#installer vagrant
+https://developer.hashicorp.com/vagrant/install
+#installer virtual box
+https://www.virtualbox.org/wiki/Downloads
+#installer visual studio code
+https://code.visualstudio.com/
